@@ -37,10 +37,14 @@ if [ -z "${PYTHON_VERSION_ARG}" ]; then
     if command -v "${PYTHON_CMD}" &> /dev/null; then
         DEFAULT_PYTHON_VERSION=$("${PYTHON_CMD}" --version 2>&1)
         echo "Default system Python version: ${DEFAULT_PYTHON_VERSION}"
-        if [[ "${DEFAULT_PYTHON_VERSION}" != *Python\ 3.13* ]]; then
-            echo "Warning: Your default Python is not 3.13. It's recommended to use Python 3.12 or 3.13 for this project."
-            echo "You can specify a version like: ./setup_project.sh 3.12"
-        fi
+	if [[ "${DEFAULT_PYTHON_VERSION}" == *Python\ 3.13* ]]; then
+	    echo "Error: Python 3.13 is not currently supported due to dependency issues."
+	    echo "Please use Python 3.12 for this project."
+	    echo "You can specify the version like: ./Setup.sh 3.12"
+	    exit 1
+	elif [[ "${DEFAULT_PYTHON_VERSION}" != *Python\ 3.12* ]]; then
+	    echo "Warning: Your default Python is not 3.12. For best results, please use Python 3.12."
+	fi
     else
         echo "Error: Default 'python' command not found. Please ensure Python is installed and in your PATH."
         exit 1
