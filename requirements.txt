@@ -8,3 +8,4 @@ requests
 pandas-ta==0.3.14b0 
 numpy==1.26.4 
 packaging<25
+scikit-learn
