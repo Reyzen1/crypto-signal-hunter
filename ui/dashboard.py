@@ -348,8 +348,8 @@ class Dashboard:
                         self._display_error_visualization(full_df, test_results)
                         
                         with st.expander("Show Raw Data & Indicators"):
-                            display_df = full_df.tail(10).copy()
-                            # ستون‌های مهم را در ابتدا قرار دهید
+                            #display_df = full_df.tail(100).copy()
+                            display_df = full_df.copy()
                             important_cols = ['price', 'volume', 'AI_Prediction', 'AI_Prediction_Label', 'target']
                             other_cols = [col for col in display_df.columns if col not in important_cols]
                             reordered_cols = important_cols + other_cols
