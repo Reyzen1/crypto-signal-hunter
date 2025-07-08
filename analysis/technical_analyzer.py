@@ -1,7 +1,7 @@
 # analysis/technical_analyzer.py
 """
 This module provides the core analysis engine.
-Version 6.1: Added prediction column to raw data display.
+Version 6.2: Added lagged features display and training/test data labeling in raw data.
 """
 
 import pandas as pd
@@ -20,6 +20,9 @@ class CryptoAnalyzer:
         Initializes the analyzer with market data from the API.
         """
         self.df = self._create_dataframe(market_data)
+        self.model_params = {}
+        self.technical_params = {}
+        self._initialize_parameters()
 
     def _create_dataframe(self, market_data):
         """
@@ -34,6 +37,34 @@ class CryptoAnalyzer:
         df_volume = df_volume.drop_duplicates(subset='date').set_index('date')
         
         return pd.merge(df_price.drop('timestamp', axis=1), df_volume.drop('timestamp', axis=1), on='date', how='inner')
+
+    def _initialize_parameters(self):
+        """
+        Initialize parameter dictionaries for display purposes.
+        """
+        self.technical_params = {
+            'SMA_EXTRA_SHORT_PERIOD': config.SMA_EXTRA_SHORT_PERIOD,
+            'SMA_SHORT_PERIOD': config.SMA_SHORT_PERIOD,
+            'SMA_LONG_PERIOD': config.SMA_LONG_PERIOD,
+            'RSI_PERIOD': config.RSI_PERIOD,
+            'MACD_FAST': config.MACD_FAST,
+            'MACD_SLOW': config.MACD_SLOW,
+            'MACD_SIGNAL': config.MACD_SIGNAL,
+            'BBANDS_LENGTH': config.BBANDS_LENGTH,
+            'BBANDS_STD': config.BBANDS_STD,
+            'VOLUME_SMA_PERIOD': config.VOLUME_SMA_PERIOD,
+            'VOLATILITY_WINDOW': config.VOLATILITY_WINDOW
+        }
+        
+        self.model_params = {
+            'algorithm': 'RandomForestClassifier',
+            'n_estimators': 100,
+            'random_state': 42,
+            'class_weight': 'balanced',
+            'test_size': 0.2,
+            'shuffle': False,
+            'lagged_features': [1, 2, 3, 5]
+        }
 
     def add_all_indicators(self):
         """
@@ -209,17 +240,62 @@ class CryptoAnalyzer:
         # Make predictions for all data points (including the latest one)
         all_predictions = model.predict(X)
         
-        # Add predictions to the full DataFrame for display
-        full_df['AI_Prediction'] = all_predictions
-        full_df['AI_Prediction_Label'] = full_df['AI_Prediction'].map({
-            1.0: 'TAKE PROFIT 🟢',
-            -1.0: 'STOP LOSS 🔴',
-            0.0: 'TIME LIMIT ⚪️'
-        })
+        # Create enhanced full_df with all necessary information
+        enhanced_full_df = self._create_enhanced_display_df(
+            full_df, X, y, X_train, X_test, y_train, y_test, 
+            all_predictions, y_pred_on_test
+        )
         
         # Make the final prediction on the most recent data
         prediction = model.predict(latest_features)
         probabilities = model.predict_proba(latest_features)
         prob_dict = {model.classes_[i]: probabilities[0][i] for i in range(len(model.classes_))}
 
-        return prediction[0], accuracy, prob_dict, report, test_results_df, full_df
+        return prediction[0], accuracy, prob_dict, report, test_results_df, enhanced_full_df
+
+    def _create_enhanced_display_df(self, full_df, X, y, X_train, X_test, y_train, y_test, all_predictions, y_pred_on_test):
+        """
+        Creates an enhanced DataFrame for display that includes:
+        - Original data and indicators
+        - Lagged features
+        - Data type (Training/Test)
+        - Predictions and their correctness
+        """
+        # Start with the original dataframe
+        enhanced_df = full_df.copy()
+        
+        # Add lagged features to the display
+        lagged_features = X.copy()
+        for col in lagged_features.columns:
+            enhanced_df[col] = lagged_features[col]
+        
+        # Add AI predictions
+        enhanced_df['AI_Prediction'] = all_predictions
+        enhanced_df['AI_Prediction_Label'] = enhanced_df['AI_Prediction'].map({
+            1.0: 'TAKE PROFIT 🟢',
+            -1.0: 'STOP LOSS 🔴',
+            0.0: 'TIME LIMIT ⚪️'
+        })
+        
+        # Add data type (Training/Test)
+        enhanced_df['Data_Type'] = 'Unknown'
+        enhanced_df.loc[X_train.index, 'Data_Type'] = 'Training 📚'
+        enhanced_df.loc[X_test.index, 'Data_Type'] = 'Test 🧪'
+        
+        # Add prediction correctness for test data
+        enhanced_df['Prediction_Correctness'] = ''
+        test_correct = y_test == y_pred_on_test
+        enhanced_df.loc[X_test.index, 'Prediction_Correctness'] = test_correct.map({
+            True: 'Correct ✅',
+            False: 'Incorrect ❌'
+        })
+        
+        # Add actual target values for comparison
+        enhanced_df['Target_Actual'] = y
+        enhanced_df['Target_Actual_Label'] = enhanced_df['Target_Actual'].map({
+            1.0: 'TAKE PROFIT 🟢',
+            -1.0: 'STOP LOSS 🔴',
+            0.0: 'TIME LIMIT ⚪️'
+        })
+        
+        return enhanced_df
