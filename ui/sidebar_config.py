@@ -7,6 +7,7 @@ Extracted from dashboard.py for better code organization.
 import streamlit as st
 from api.coingecko import get_all_coins, get_market_data
 import config
+from ui.messages import Messages
 
 class SidebarConfig:
     def __init__(self):
@@ -23,27 +24,27 @@ class SidebarConfig:
         return current_price * (1 + percentage / 100)
 
     def build_sidebar(self):
-        st.sidebar.title("🛠️ Configuration")
+        st.sidebar.title(Messages.SIDEBAR_TITLE)
         def reset_analysis_state(): 
             st.session_state.analysis_requested = False
             if 'current_price' in st.session_state:
                 del st.session_state.current_price
         
-        st.sidebar.subheader("Data Settings")
+        st.sidebar.subheader(Messages.DATA_SETTINGS_TITLE)
         all_coins = get_all_coins()
         if not all_coins: 
-            st.error("Could not fetch coin list.")
+            st.error(Messages.COIN_LIST_ERROR)
             st.stop()
         
         selected_coin_name = st.sidebar.selectbox(
-            "Cryptocurrency:", 
+            Messages.CRYPTOCURRENCY_LABEL, 
             options=list(all_coins.keys()), 
             index=list(all_coins.keys()).index(config.DEFAULT_COIN_NAME), 
             on_change=reset_analysis_state
         )
         
         days_to_fetch = st.sidebar.slider(
-            "Date Range (Days):", 
+            Messages.DATE_RANGE_LABEL, 
             min_value=100, 
             max_value=365, 
             value=config.DEFAULT_DAYS_TO_FETCH, 
@@ -51,45 +52,29 @@ class SidebarConfig:
         )
         
         vs_currency = st.sidebar.selectbox(
-            "Quote Currency:", 
+            Messages.QUOTE_CURRENCY_LABEL, 
             options=["usd", "eur", "jpy", "btc"], 
             index=["usd", "eur", "jpy", "btc"].index(config.DEFAULT_CURRENCY), 
             on_change=reset_analysis_state
         )
         
         st.sidebar.markdown("---")
-        st.sidebar.subheader("🎯 Strategy Mode")
+        st.sidebar.subheader(Messages.STRATEGY_MODE_TITLE)
         
         # Strategy mode selection
         strategy_mode = st.sidebar.radio(
-            "Select Strategy Mode:",
+            Messages.STRATEGY_MODE_LABEL,
             options=['Dynamic', 'Fixed'],
             index=0 if config.DEFAULT_STRATEGY_MODE == 'Dynamic' else 1,
             on_change=reset_analysis_state,
-            help="Dynamic: Based on market volatility | Fixed: Based on your targets"
+            help=Messages.STRATEGY_MODE_HELP
         )
 
-        with st.sidebar.expander("ℹ️ How does this work?", expanded=False):
+        with st.sidebar.expander(Messages.HOW_DOES_THIS_WORK, expanded=False):
             if strategy_mode == 'Dynamic':
-                st.markdown("**🔄 Dynamic Strategy:**")
-                st.markdown("• Targets based on market volatility")
-                st.markdown("• Higher volatility = Higher targets")
-                st.markdown("• Adapts to market conditions automatically")
-                st.markdown("• Formula: `Target = Price × (1 ± Volatility × Multiplier)`")
-                st.markdown("")
-                st.markdown("**Example:** If volatility is 2% and multiplier is 2.0:")
-                st.markdown("- Take Profit: +4% from current price")
-                st.markdown("- Stop Loss: -2% from current price")
+                st.markdown(Messages.DYNAMIC_STRATEGY_HELP_TEXT)
             else:
-                st.markdown("**🎯 Fixed Strategy:**")
-                st.markdown("• Fixed percentage targets set by user")
-                st.markdown("• Consistent risk/reward ratio")
-                st.markdown("• Predictable entry/exit points")
-                st.markdown("• Formula: `Target = Price × (1 ± Percentage/100)`")
-                st.markdown("")
-                st.markdown("**Example:** If you set 3% profit and 1.5% loss:")
-                st.markdown("- Take Profit: +3% from current price")
-                st.markdown("- Stop Loss: -1.5% from current price")
+                st.markdown(Messages.FIXED_STRATEGY_HELP_TEXT)
 
         st.sidebar.markdown("---")
         
@@ -107,27 +92,27 @@ class SidebarConfig:
         
         # Strategy-specific settings
         if strategy_mode == 'Dynamic':
-            st.sidebar.subheader("🔄 Dynamic Strategy Settings")
-            st.sidebar.info("Targets are calculated based on market volatility")
+            st.sidebar.subheader(Messages.DYNAMIC_STRATEGY_TITLE)
+            st.sidebar.info(Messages.DYNAMIC_STRATEGY_INFO)
             
             tp_multiplier = st.sidebar.number_input(
-                "Take Profit Multiplier:", 
+                Messages.TAKE_PROFIT_MULTIPLIER_LABEL, 
                 min_value=0.5, 
                 max_value=5.0,
                 value=config.VOLATILITY_TAKE_PROFIT_MULTIPLIER, 
                 step=0.1, 
                 on_change=reset_analysis_state,
-                help="Higher values = more aggressive profit targets"
+                help=Messages.TAKE_PROFIT_MULTIPLIER_HELP
             )
             
             sl_multiplier = st.sidebar.number_input(
-                "Stop Loss Multiplier:", 
+                Messages.STOP_LOSS_MULTIPLIER_LABEL, 
                 min_value=0.5, 
                 max_value=5.0,
                 value=config.VOLATILITY_STOP_LOSS_MULTIPLIER, 
                 step=0.1, 
                 on_change=reset_analysis_state,
-                help="Higher values = more conservative stop losses"
+                help=Messages.STOP_LOSS_MULTIPLIER_HELP
             )
             
             strategy_params = {
@@ -137,16 +122,16 @@ class SidebarConfig:
             }
             
         else:  # Fixed mode
-            st.sidebar.subheader("🎯 Fixed Strategy Settings")
-            st.sidebar.info(f"Current Price: {current_price:.4f} {vs_currency.upper()}")
+            st.sidebar.subheader(Messages.FIXED_STRATEGY_TITLE)
+            st.sidebar.info(Messages.CURRENT_PRICE_LABEL_SIDEBAR.format(price=current_price, currency=vs_currency.upper()))
             
             # Take Profit Section
-            st.sidebar.write("**Take Profit Target:**")
+            st.sidebar.write(f"**{Messages.TAKE_PROFIT_TARGET_LABEL}**")
             col1, col2 = st.sidebar.columns(2)
             
             with col1:
                 tp_price = st.number_input(
-                    "Price:",
+                    f"{Messages.PRICE_LABEL}",
                     min_value=0.0,
                     value=self._calculate_price_from_percentage(current_price, config.TAKE_PROFIT_PCT),
                     step=current_price * 0.001,
@@ -157,7 +142,7 @@ class SidebarConfig:
             
             with col2:
                 tp_pct = st.number_input(
-                    "Percentage:",
+                    f"{Messages.PERCENTAGE_LABEL}",
                     value=self._calculate_percentage_from_price(current_price, tp_price),
                     step=0.1,
                     format="%.2f",
@@ -174,12 +159,12 @@ class SidebarConfig:
                 st.session_state.tp_price = tp_price
             
             # Stop Loss Section
-            st.sidebar.write("**Stop Loss Target:**")
+            st.sidebar.write(f"**{Messages.STOP_LOSS_TARGET_LABEL}**")
             col3, col4 = st.sidebar.columns(2)
             
             with col3:
                 sl_price = st.number_input(
-                    "Price:",
+                    f"{Messages.PRICE_LABEL}",
                     min_value=0.0,
                     value=self._calculate_price_from_percentage(current_price, -config.STOP_LOSS_PCT),
                     step=current_price * 0.001,
@@ -190,7 +175,7 @@ class SidebarConfig:
             
             with col4:
                 sl_pct = st.number_input(
-                    "Percentage:",
+                    f"{Messages.PERCENTAGE_LABEL}",
                     value=abs(self._calculate_percentage_from_price(current_price, sl_price)),
                     step=0.1,
                     format="%.2f",
@@ -214,21 +199,21 @@ class SidebarConfig:
         
         # Common settings
         st.sidebar.markdown("---")
-        st.sidebar.subheader("⏰ Time Settings")
+        st.sidebar.subheader(Messages.TIME_SETTINGS_TITLE)
         time_limit = st.sidebar.slider(
-            "Time Limit (Days)", 
+            Messages.TIME_LIMIT_LABEL, 
             min_value=3, 
             max_value=30, 
             value=config.TIME_BARRIER_DAYS, 
             on_change=reset_analysis_state,
-            help="Maximum number of days to wait for Take Profit or Stop Loss targets to be hit. If neither target is reached within this time, the signal becomes 'TIME LIMIT HIT' (neutral/hold signal)."
+            help=Messages.TIME_LIMIT_HELP
         )
         
         strategy_params['time_barrier_days'] = time_limit
         
         st.sidebar.markdown("---")
         st.sidebar.button(
-            "🚀 Analyze Now", 
+            Messages.ANALYZE_NOW_BUTTON, 
             on_click=lambda: st.session_state.update(analysis_requested=True), 
             use_container_width=True
         )

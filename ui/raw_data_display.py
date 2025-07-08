@@ -6,10 +6,11 @@ Extracted from dashboard.py for better code organization.
 
 import streamlit as st
 import pandas as pd
+from .messages import Messages
 
 class RawDataDisplay:
     def __init__(self):
-        pass
+        self.messages = Messages()
 
     def _add_target_prices_to_dataframe(self, display_df, strategy_params):
         """Add Take Profit and Stop Loss target prices and percentages to the dataframe."""
@@ -49,7 +50,7 @@ class RawDataDisplay:
 
     def display_raw_data(self, full_df, strategy_params, analyzer):
         """Display raw data with tabs and explanations."""
-        with st.expander("Show Raw Data & Indicators"):
+        with st.expander(self.messages.RAW_DATA_EXPANDER_TITLE):
             display_df = full_df.copy()
             
             # Add target prices and percentages
@@ -83,14 +84,18 @@ class RawDataDisplay:
             available_cols = [col for col in reordered_cols if col in display_df.columns]
             
             # Create tabs for different data views
-            tab1, tab2, tab3 = st.tabs(["📊 All Data", "🧪 Test Data Only", "📈 Recent 50 Days"])
+            tab1, tab2, tab3 = st.tabs([
+                self.messages.TAB_ALL_DATA, 
+                self.messages.TAB_TEST_DATA, 
+                self.messages.TAB_RECENT_DATA
+            ])
             
             with tab1:
-                st.subheader("Complete Dataset")
+                st.subheader(self.messages.COMPLETE_DATASET_TITLE)
                 st.dataframe(display_df[available_cols], use_container_width=True)
                 
             with tab2:
-                st.subheader("Test Dataset with Predictions")
+                st.subheader(self.messages.TEST_DATASET_TITLE)
                 test_data = display_df[display_df['Data_Type'] == 'Test 🧪']
                 if not test_data.empty:
                     st.dataframe(test_data[available_cols], use_container_width=True)
@@ -99,12 +104,19 @@ class RawDataDisplay:
                     if 'Prediction_Correctness' in test_data.columns:
                         correct_predictions = (test_data['Prediction_Correctness'] == 'Correct ✅').sum()
                         total_predictions = len(test_data)
-                        st.metric("Test Accuracy", f"{correct_predictions}/{total_predictions} ({correct_predictions/total_predictions:.1%})")
+                        st.metric(
+                            self.messages.TEST_ACCURACY_METRIC,
+                            self.messages.TEST_ACCURACY_FORMAT.format(
+                                correct=correct_predictions,
+                                total=total_predictions,
+                                accuracy=correct_predictions/total_predictions
+                            )
+                        )
                 else:
-                    st.info("No test data available")
+                    st.info(self.messages.NO_TEST_DATA_AVAILABLE)
                     
             with tab3:
-                st.subheader("Recent 50 Days")
+                st.subheader(self.messages.RECENT_DATASET_TITLE)
                 recent_data = display_df.tail(50)
                 st.dataframe(recent_data[available_cols], use_container_width=True)
             
@@ -117,102 +129,92 @@ class RawDataDisplay:
     def _show_data_explanation(self):
         """Display explanation of data columns and signals."""
         st.markdown("---")
-        st.subheader("📖 Data Explanation")
+        st.subheader(self.messages.DATA_EXPLANATION_TITLE)
 
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-            st.markdown("**📊 Basic Data:**")
-            st.markdown("- `price`: Current market price")
-            st.markdown("- `volume`: Trading volume")
+            st.markdown(self.messages.BASIC_DATA_GROUP_TITLE)
+            st.markdown(self.messages.BASIC_DATA_PRICE_DESC)
+            st.markdown(self.messages.BASIC_DATA_VOLUME_DESC)
 
         with col2:
-            st.markdown("**🎯 Target Prices:**")
-            st.markdown("- `TP_Price`: Take Profit target price")
-            st.markdown("- `TP_Percentage`: Take Profit percentage")
-            st.markdown("- `SL_Price`: Stop Loss target price")
-            st.markdown("- `SL_Percentage`: Stop Loss percentage")
+            st.markdown(self.messages.TARGET_PRICES_GROUP_TITLE)
+            st.markdown(self.messages.TARGET_PRICES_TP_PRICE_DESC)
+            st.markdown(self.messages.TARGET_PRICES_TP_PERCENTAGE_DESC)
+            st.markdown(self.messages.TARGET_PRICES_SL_PRICE_DESC)
+            st.markdown(self.messages.TARGET_PRICES_SL_PERCENTAGE_DESC)
 
         with col3:
-            st.markdown("**📊 Status & Predictions:**")
-            st.markdown("- `Data_Type`: Training 📚 or Test 🧪")
-            st.markdown("- `AI_Prediction`: Raw prediction (-1, 0, 1)")
-            st.markdown("- `Target_Actual`: Actual outcome")
-            st.markdown("- `Prediction_Correctness`: AI accuracy")
+            st.markdown(self.messages.STATUS_PREDICTIONS_GROUP_TITLE)
+            st.markdown(self.messages.STATUS_PREDICTIONS_DATA_TYPE_DESC)
+            st.markdown(self.messages.STATUS_PREDICTIONS_AI_PREDICTION_DESC)
+            st.markdown(self.messages.STATUS_PREDICTIONS_TARGET_ACTUAL_DESC)
+            st.markdown(self.messages.STATUS_PREDICTIONS_CORRECTNESS_DESC)
 
         with col4:
-            st.markdown("**📈 Lagged Features:**")
-            st.markdown("- `_lag_1`: 1 day ago values")
-            st.markdown("- `_lag_2`: 2 days ago values")
-            st.markdown("- `_lag_3`: 3 days ago values")
-            st.markdown("- `_lag_5`: 5 days ago values")
+            st.markdown(self.messages.LAGGED_FEATURES_GROUP_TITLE)
+            st.markdown(self.messages.LAGGED_FEATURES_LAG1_DESC)
+            st.markdown(self.messages.LAGGED_FEATURES_LAG2_DESC)
+            st.markdown(self.messages.LAGGED_FEATURES_LAG3_DESC)
+            st.markdown(self.messages.LAGGED_FEATURES_LAG5_DESC)
 
         # Add signal meanings
         st.markdown("---")
-        st.subheader("🏷️ Signal Meanings")
+        st.subheader(self.messages.SIGNAL_MEANINGS_TITLE)
 
         label_col1, label_col2, label_col3 = st.columns(3)
 
         with label_col1:
-            st.markdown("**🟢 TAKE PROFIT:**")
-            st.markdown("- Price reached profit target")
-            st.markdown("- AI suggests buying")
-            st.markdown("- Bullish signal")
+            st.markdown(self.messages.TAKE_PROFIT_SIGNAL_TITLE)
+            st.markdown(self.messages.TAKE_PROFIT_SIGNAL_PRICE_DESC)
+            st.markdown(self.messages.TAKE_PROFIT_SIGNAL_AI_DESC)
+            st.markdown(self.messages.TAKE_PROFIT_SIGNAL_TYPE_DESC)
 
         with label_col2:
-            st.markdown("**🔴 STOP LOSS:**")
-            st.markdown("- Price hit stop loss level")
-            st.markdown("- AI suggests selling")
-            st.markdown("- Bearish signal")
+            st.markdown(self.messages.STOP_LOSS_SIGNAL_TITLE)
+            st.markdown(self.messages.STOP_LOSS_SIGNAL_PRICE_DESC)
+            st.markdown(self.messages.STOP_LOSS_SIGNAL_AI_DESC)
+            st.markdown(self.messages.STOP_LOSS_SIGNAL_TYPE_DESC)
 
         with label_col3:
-            st.markdown("**⚪️ TIME LIMIT:**")
-            st.markdown("- Neither target reached")
-            st.markdown("- Time barrier hit")
-            st.markdown("- Neutral/Hold signal")
+            st.markdown(self.messages.TIME_LIMIT_SIGNAL_TITLE)
+            st.markdown(self.messages.TIME_LIMIT_SIGNAL_PRICE_DESC)
+            st.markdown(self.messages.TIME_LIMIT_SIGNAL_BARRIER_DESC)
+            st.markdown(self.messages.TIME_LIMIT_SIGNAL_TYPE_DESC)
 
         # Add strategy explanations
         st.markdown("---")
-        st.subheader("🧠 Strategy Explanation")
+        st.subheader(self.messages.STRATEGY_EXPLANATION_TITLE)
 
         strategy_col1, strategy_col2 = st.columns(2)
 
         with strategy_col1:
-            st.markdown("**🔄 Dynamic Strategy:**")
-            st.markdown("""
-            - Targets calculated based on market volatility
-            - Higher volatility = Higher targets
-            - Adapts to market conditions automatically
-            - Formula: `Target = Price × (1 ± Volatility × Multiplier)`
-            """)
+            st.markdown(self.messages.DYNAMIC_STRATEGY_EXPLANATION_TITLE)
+            st.markdown(self.messages.DYNAMIC_STRATEGY_EXPLANATION_TEXT)
 
         with strategy_col2:
-            st.markdown("**🎯 Fixed Strategy:**")
-            st.markdown("""
-            - Fixed percentage targets set by user
-            - Consistent targets regardless of market conditions
-            - More predictable risk/reward ratio
-            - Formula: `Target = Price × (1 ± Percentage/100)`
-            """)
+            st.markdown(self.messages.FIXED_STRATEGY_EXPLANATION_TITLE)
+            st.markdown(self.messages.FIXED_STRATEGY_EXPLANATION_TEXT)
 
     def _show_parameters_summary(self, strategy_params, analyzer):
         """Display parameters summary."""
         st.markdown("---")
-        st.subheader("🔧 Parameters Summary")
+        st.subheader(self.messages.PARAMETERS_SUMMARY_TITLE)
         
         param_col1, param_col2, param_col3 = st.columns(3)
         
         with param_col1:
-            st.write("**Strategy Parameters:**")
+            st.write(self.messages.STRATEGY_PARAMETERS_TITLE)
             strategy_summary = {k: v for k, v in strategy_params.items()}
             st.json(strategy_summary)
         
         with param_col2:
-            st.write("**Model Parameters:**")
+            st.write(self.messages.MODEL_PARAMETERS_TITLE)
             model_summary = analyzer.model_params
             st.json(model_summary)
         
         with param_col3:
-            st.write("**Technical Indicator Parameters:**")
+            st.write(self.messages.TECHNICAL_INDICATOR_PARAMETERS_TITLE)
             tech_summary = analyzer.technical_params
             st.json(tech_summary)
