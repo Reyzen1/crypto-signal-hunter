@@ -1,48 +1,69 @@
 # analysis/technical_analyzer.py
 """
-This module provides the core analysis engine.
-Version 6.2: Added lagged features display and training/test data labeling in raw data.
+Optimized crypto technical analyzer with improved code structure and efficiency.
+Version 6.3: Refactored with better constants management, flexible lagged features,
+and reduced complexity.
 """
 
 import pandas as pd
 import pandas_ta as ta
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report  # تصحیح شده
 import config
 
 class CryptoAnalyzer:
-    """
-    The core engine for performing technical analysis and training the ML model.
-    """
-    def __init__(self, market_data):
-        """
-        Initializes the analyzer with market data from the API.
-        """
+    """Optimized crypto technical analyzer with ML capabilities."""
+    
+    # Class constants
+    LABEL_MAP = {
+        1.0: 'TAKE PROFIT 🟢',
+        -1.0: 'STOP LOSS 🔴',
+        0.0: 'TIME LIMIT ⚪️'
+    }
+    
+    DEFAULT_LAGS = [1, 2, 3, 5]
+    MODEL_PARAMS = {
+        'n_estimators': 100,
+        'random_state': 42,
+        'class_weight': 'balanced'
+    }
+    
+    SPLIT_PARAMS = {
+        'test_size': 0.2,
+        'random_state': 42,
+        'shuffle': False
+    }
+    
+    def __init__(self, market_data, lags=None):
+        """Initialize analyzer with market data and optional lag configuration."""
         self.df = self._create_dataframe(market_data)
-        self.model_params = {}
-        self.technical_params = {}
-        self._initialize_parameters()
-
+        self.lags = lags or self.DEFAULT_LAGS
+        self.technical_params = self._get_technical_params()
+        self.model_params = self._get_model_params()
+    
     def _create_dataframe(self, market_data):
-        """
-        Processes the raw market data JSON into a clean pandas DataFrame.
-        """
+        """Process raw market data into clean DataFrame."""
+        # Process price data
         df_price = pd.DataFrame(market_data['prices'], columns=['timestamp', 'price'])
         df_price['date'] = pd.to_datetime(df_price['timestamp'], unit='ms').dt.date
         df_price = df_price.drop_duplicates(subset='date').set_index('date')
-
+        
+        # Process volume data
         df_volume = pd.DataFrame(market_data['total_volumes'], columns=['timestamp', 'volume'])
         df_volume['date'] = pd.to_datetime(df_volume['timestamp'], unit='ms').dt.date
         df_volume = df_volume.drop_duplicates(subset='date').set_index('date')
         
-        return pd.merge(df_price.drop('timestamp', axis=1), df_volume.drop('timestamp', axis=1), on='date', how='inner')
-
-    def _initialize_parameters(self):
-        """
-        Initialize parameter dictionaries for display purposes.
-        """
-        self.technical_params = {
+        # Merge and clean
+        return pd.merge(
+            df_price.drop('timestamp', axis=1),
+            df_volume.drop('timestamp', axis=1),
+            on='date', how='inner'
+        )
+    
+    def _get_technical_params(self):
+        """Get technical analysis parameters from config."""
+        return {
             'SMA_EXTRA_SHORT_PERIOD': config.SMA_EXTRA_SHORT_PERIOD,
             'SMA_SHORT_PERIOD': config.SMA_SHORT_PERIOD,
             'SMA_LONG_PERIOD': config.SMA_LONG_PERIOD,
@@ -55,229 +76,203 @@ class CryptoAnalyzer:
             'VOLUME_SMA_PERIOD': config.VOLUME_SMA_PERIOD,
             'VOLATILITY_WINDOW': config.VOLATILITY_WINDOW
         }
-        
-        self.model_params = {
+    
+    def _get_model_params(self):
+        """Get model parameters with current configuration."""
+        return {
             'algorithm': 'RandomForestClassifier',
-            'n_estimators': 100,
-            'random_state': 42,
-            'class_weight': 'balanced',
-            'test_size': 0.2,
-            'shuffle': False,
-            'lagged_features': [1, 2, 3, 5]
+            'lagged_features': self.lags,
+            **self.MODEL_PARAMS,
+            **self.SPLIT_PARAMS
         }
-
+    
     def add_all_indicators(self):
-        """
-        Calculates all technical indicators using the pandas_ta library.
-        """
+        """Add all technical indicators to DataFrame."""
         if self.df.empty:
             return
-
+        
         close_price = self.df['price']
         volume = self.df['volume']
-
-        # Trend and Momentum Indicators
-        self.df.ta.sma(close=close_price, length=config.SMA_EXTRA_SHORT_PERIOD, append=True)
-        self.df.ta.sma(close=close_price, length=config.SMA_SHORT_PERIOD, append=True)
-        self.df.ta.sma(close=close_price, length=config.SMA_LONG_PERIOD, append=True)
-        self.df.ta.rsi(close=close_price, length=config.RSI_PERIOD, append=True)
-        self.df.ta.macd(close=close_price, fast=config.MACD_FAST, slow=config.MACD_SLOW, signal=config.MACD_SIGNAL, append=True)
         
-        # Volatility Indicator
-        self.df.ta.bbands(close=close_price, length=config.BBANDS_LENGTH, std=config.BBANDS_STD, append=True)
+        # Add all indicators in one go
+        self._add_trend_indicators(close_price)
+        self._add_volatility_indicators(close_price)
+        self._add_volume_indicators(close_price, volume)
         
-        # Add volatility column for dynamic strategy
-        self.df['volatility'] = self.df['price'].pct_change().rolling(window=config.VOLATILITY_WINDOW).std()
-        
-        # Volume Indicators
-        vol_sma_name = f'VOL_SMA_{config.VOLUME_SMA_PERIOD}'
-        self.df.ta.sma(close=volume, length=config.VOLUME_SMA_PERIOD, append=True, col_names=(vol_sma_name,))
-        
-        epsilon = 1e-10
-        self.df['VOL_RATIO'] = self.df['volume'] / (self.df[vol_sma_name] + epsilon)
-        self.df.ta.obv(close=close_price, volume=volume, append=True)
-        
-        # Clean up any potential duplicate columns that might be generated
+        # Clean up and handle duplicates
         self.df = self.df.loc[:, ~self.df.columns.duplicated()]
         self.df.dropna(inplace=True)
-
-    def _get_triple_barrier_labels(self, strategy_params):
-        """
-        Labels the data based on the triple-barrier method with dual strategy support.
-        - 1: Take Profit hit
-        - -1: Stop Loss hit
-        - 0: Time Barrier hit
+    
+    def _add_trend_indicators(self, close_price):
+        """Add trend and momentum indicators."""
+        # SMA indicators
+        for period in [config.SMA_EXTRA_SHORT_PERIOD, config.SMA_SHORT_PERIOD, config.SMA_LONG_PERIOD]:
+            self.df.ta.sma(close=close_price, length=period, append=True)
         
-        Args:
-            strategy_params (dict): Dictionary containing strategy parameters
-                - mode: 'Dynamic' or 'Fixed'
-                - For Dynamic mode: tp_multiplier, sl_multiplier, time_barrier_days
-                - For Fixed mode: take_profit_pct, stop_loss_pct, time_barrier_days
-        """
+        # RSI and MACD
+        self.df.ta.rsi(close=close_price, length=config.RSI_PERIOD, append=True)
+        self.df.ta.macd(close=close_price, fast=config.MACD_FAST, 
+                        slow=config.MACD_SLOW, signal=config.MACD_SIGNAL, append=True)
+    
+    def _add_volatility_indicators(self, close_price):
+        """Add volatility indicators."""
+        # Bollinger Bands
+        self.df.ta.bbands(close=close_price, length=config.BBANDS_LENGTH, 
+                         std=config.BBANDS_STD, append=True)
+        
+        # Add volatility column
+        self.df['volatility'] = (self.df['price'].pct_change()
+                                .rolling(window=config.VOLATILITY_WINDOW).std())
+    
+    def _add_volume_indicators(self, close_price, volume):
+        """Add volume indicators."""
+        # Volume SMA
+        vol_sma_name = f'VOL_SMA_{config.VOLUME_SMA_PERIOD}'
+        self.df.ta.sma(close=volume, length=config.VOLUME_SMA_PERIOD, 
+                      append=True, col_names=(vol_sma_name,))
+        
+        # Volume ratio (with epsilon for stability)
+        self.df['VOL_RATIO'] = volume / (self.df[vol_sma_name] + 1e-10)
+        
+        # On-Balance Volume
+        self.df.ta.obv(close=close_price, volume=volume, append=True)
+    
+    def _get_triple_barrier_labels(self, strategy_params):
+        """Create labels using triple-barrier method."""
         prices = self.df['price']
         labels = pd.Series(index=prices.index, data=0.0)
+        
         mode = strategy_params['mode']
         time_barrier_days = strategy_params['time_barrier_days']
-
+        
         for i in range(len(prices) - time_barrier_days):
-            entry_price = prices.iloc[i]
+            levels = self._calculate_barrier_levels(i, strategy_params)
+            if levels is None:
+                continue
             
-            if mode == 'Dynamic':
-                # Dynamic mode: calculate thresholds based on volatility
-                volatility = self.df['volatility'].iloc[i]
-                if pd.isna(volatility) or volatility == 0:
-                    continue
-                
-                tp_multiplier = strategy_params['tp_multiplier']
-                sl_multiplier = strategy_params['sl_multiplier']
-                
-                take_profit_level = entry_price * (1 + volatility * tp_multiplier)
-                stop_loss_level = entry_price * (1 - volatility * sl_multiplier)
-                
-            elif mode == 'Fixed':
-                # Fixed mode: use fixed percentages
-                take_profit_pct = strategy_params['take_profit_pct']
-                stop_loss_pct = strategy_params['stop_loss_pct']
-                
-                take_profit_level = entry_price * (1 + take_profit_pct / 100)
-                stop_loss_level = entry_price * (1 - stop_loss_pct / 100)
-            
-            else:
-                raise ValueError(f"Unknown strategy mode: {mode}")
-
+            take_profit_level, stop_loss_level = levels
             future_prices = prices.iloc[i+1 : i+1+time_barrier_days]
-
+            
             for price in future_prices:
                 if price >= take_profit_level:
                     labels.iloc[i] = 1.0
-                    break 
-                if price <= stop_loss_level:
+                    break
+                elif price <= stop_loss_level:
                     labels.iloc[i] = -1.0
                     break
         
         return labels
-
-    def prepare_ml_data(self, strategy_params):
-        """
-        Prepares the data for machine learning by adding labels and lagged features.
+    
+    def _calculate_barrier_levels(self, idx, strategy_params):
+        """Calculate take profit and stop loss levels."""
+        entry_price = self.df['price'].iloc[idx]
+        mode = strategy_params['mode']
         
-        Args:
-            strategy_params (dict): Dictionary containing strategy parameters
-        """
-        # Step 1: Create labels using the triple-barrier method
+        if mode == 'Dynamic':
+            volatility = self.df['volatility'].iloc[idx]
+            if pd.isna(volatility) or volatility == 0:
+                return None
+            
+            tp_level = entry_price * (1 + volatility * strategy_params['tp_multiplier'])
+            sl_level = entry_price * (1 - volatility * strategy_params['sl_multiplier'])
+        
+        elif mode == 'Fixed':
+            tp_level = entry_price * (1 + strategy_params['take_profit_pct'] / 100)
+            sl_level = entry_price * (1 - strategy_params['stop_loss_pct'] / 100)
+        
+        else:
+            raise ValueError(f"Unknown strategy mode: {mode}")
+        
+        return tp_level, sl_level
+    
+    def prepare_ml_data(self, strategy_params):
+        """Prepare ML data with labels and lagged features."""
+        # Create labels
         self.df['target'] = self._get_triple_barrier_labels(strategy_params)
         
-        # Step 2: Identify base features to create lags from
+        # Create lagged features efficiently
         features_to_exclude = ['price', 'volume', 'target']
         base_features = [col for col in self.df.columns if col not in features_to_exclude]
         
-        original_features_df = self.df[base_features].copy()
-        lagged_features_list = [original_features_df]
-        lags_to_create = [1, 2, 3, 5] # Define which past days to use as features
-
-        # Step 3: Create lagged features in a loop
-        for lag in lags_to_create:
-            shifted_df = original_features_df.shift(lag)
-            shifted_df.columns = [f'{col}_lag_{lag}' for col in original_features_df.columns]
-            lagged_features_list.append(shifted_df)
-
-        # Combine original and lagged features into one DataFrame
-        X_with_lags = pd.concat(lagged_features_list, axis=1)
-
-        # Step 4 & 5: Manage NaN values and finalize data
-        y = self.df['target']
-        combined = pd.concat([X_with_lags, y], axis=1)
-        combined.dropna(inplace=True) # Drop rows with any NaN values (from shifting)
+        # Use list comprehension for efficient lagged feature creation
+        lagged_features_list = [self.df[base_features]]
+        lagged_features_list.extend([
+            self.df[base_features].shift(lag).add_suffix(f'_lag_{lag}')
+            for lag in self.lags
+        ])
         
-        if combined.empty: 
+        # Combine all features
+        X_with_lags = pd.concat(lagged_features_list, axis=1)
+        
+        # Create final dataset
+        combined = pd.concat([X_with_lags, self.df['target']], axis=1)
+        combined.dropna(inplace=True)
+        
+        if combined.empty:
             return None, None, None
-
-        # Separate the final features (X) and target (y)
+        
         X = combined.drop('target', axis=1)
         y = combined['target']
-
-        # The full_df should align with the cleaned data's index for plotting
         full_df = self.df.loc[X.index].copy()
-
-        return X, y, full_df
-
-    def train_and_predict(self, strategy_params):
-        """
-        Trains the RandomForest model and makes a prediction for the latest data point.
         
-        Args:
-            strategy_params (dict): Dictionary containing strategy parameters
-        """
-        # Prepare all features, including lagged ones
+        return X, y, full_df
+    
+    def train_and_predict(self, strategy_params):
+        """Train model and make predictions."""
         X, y, full_df = self.prepare_ml_data(strategy_params)
-
+        
         if X is None or X.empty or len(y.unique()) < 2:
-            return None, None, None, None, None, None
-
-        # Split data without shuffling to respect the time-series nature
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=False)
+            return (None,) * 6
+        
+        # Split data
+        X_train, X_test, y_train, y_test = train_test_split(X, y, **self.SPLIT_PARAMS)
         
         if len(X_train) == 0 or len(X_test) == 0:
-            return None, None, None, None, None, None
-
-        # The last row of features is used for the final real-time prediction
-        latest_features = X.iloc[[-1]]
-
-        # Initialize and train the model
-        model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
+            return (None,) * 6
+        
+        # Train model
+        model = RandomForestClassifier(**self.MODEL_PARAMS)
         model.fit(X_train, y_train)
         
-        # Evaluate the model on the test set
+        # Make predictions
         y_pred_on_test = model.predict(X_test)
-        report = classification_report(y_test, y_pred_on_test, output_dict=True, zero_division=0, labels=[1.0, -1.0, 0.0])
-        accuracy = model.score(X_test, y_test)
-
-        # Create a DataFrame for error analysis visualization
-        test_results_df = pd.DataFrame(index=X_test.index)
-        test_results_df['actual'] = y_test
-        test_results_df['predicted'] = y_pred_on_test
-        
-        # Make predictions for all data points (including the latest one)
         all_predictions = model.predict(X)
         
-        # Create enhanced full_df with all necessary information
+        # Calculate metrics
+        accuracy = model.score(X_test, y_test)
+        report = classification_report(y_test, y_pred_on_test, output_dict=True,
+                                     zero_division=0, labels=[1.0, -1.0, 0.0])
+        
+        # Create result datasets
+        test_results_df = pd.DataFrame({
+            'actual': y_test,
+            'predicted': y_pred_on_test
+        }, index=X_test.index)
+        
         enhanced_full_df = self._create_enhanced_display_df(
             full_df, X, y, X_train, X_test, y_train, y_test, 
             all_predictions, y_pred_on_test
         )
         
-        # Make the final prediction on the most recent data
-        prediction = model.predict(latest_features)
+        # Make final prediction
+        latest_features = X.iloc[[-1]]
+        prediction = model.predict(latest_features)[0]
         probabilities = model.predict_proba(latest_features)
-        prob_dict = {model.classes_[i]: probabilities[0][i] for i in range(len(model.classes_))}
-
-        return prediction[0], accuracy, prob_dict, report, test_results_df, enhanced_full_df
-
-    def _create_enhanced_display_df(self, full_df, X, y, X_train, X_test, y_train, y_test, all_predictions, y_pred_on_test):
-        """
-        Creates an enhanced DataFrame for display that includes:
-        - Original data and indicators
-        - Lagged features
-        - Data type (Training/Test)
-        - Predictions and their correctness
-        """
-        # Start with the original dataframe
-        enhanced_df = full_df.copy()
+        prob_dict = {model.classes_[i]: probabilities[0][i] 
+                    for i in range(len(model.classes_))}
         
-        # Add lagged features to the display
-        lagged_features = X.copy()
-        for col in lagged_features.columns:
-            enhanced_df[col] = lagged_features[col]
+        return prediction, accuracy, prob_dict, report, test_results_df, enhanced_full_df
+    
+    def _create_enhanced_display_df(self, full_df, X, y, X_train, X_test, 
+                                  y_train, y_test, all_predictions, y_pred_on_test):
+        """Create enhanced DataFrame for display with all information."""
+        enhanced_df = pd.concat([full_df, X], axis=1)
         
-        # Add AI predictions
+        # Add prediction columns
         enhanced_df['AI_Prediction'] = all_predictions
-        enhanced_df['AI_Prediction_Label'] = enhanced_df['AI_Prediction'].map({
-            1.0: 'TAKE PROFIT 🟢',
-            -1.0: 'STOP LOSS 🔴',
-            0.0: 'TIME LIMIT ⚪️'
-        })
+        enhanced_df['AI_Prediction_Label'] = enhanced_df['AI_Prediction'].map(self.LABEL_MAP)
         
-        # Add data type (Training/Test)
+        # Add data type information
         enhanced_df['Data_Type'] = 'Unknown'
         enhanced_df.loc[X_train.index, 'Data_Type'] = 'Training 📚'
         enhanced_df.loc[X_test.index, 'Data_Type'] = 'Test 🧪'
@@ -290,12 +285,8 @@ class CryptoAnalyzer:
             False: 'Incorrect ❌'
         })
         
-        # Add actual target values for comparison
+        # Add actual target information
         enhanced_df['Target_Actual'] = y
-        enhanced_df['Target_Actual_Label'] = enhanced_df['Target_Actual'].map({
-            1.0: 'TAKE PROFIT 🟢',
-            -1.0: 'STOP LOSS 🔴',
-            0.0: 'TIME LIMIT ⚪️'
-        })
+        enhanced_df['Target_Actual_Label'] = enhanced_df['Target_Actual'].map(self.LABEL_MAP)
         
         return enhanced_df
